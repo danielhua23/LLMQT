@@ -39,6 +39,7 @@ TRANSFORMERS_AUTO_MAPPING_DICT = {
     "qwen2_vl": "AutoModelForVision2Seq",
     "qwen3": "AutoModelForCausalLM",
     "qwen3_moe": "AutoModelForCausalLM",
+    "deepseek_v3": "AutoModelForCausalLM",
 }
 
 

@@ -13,7 +13,7 @@ from .scale import apply_scale, apply_clip
 from quant.nn_models.modules.linear import (
     get_concrete_linear_module
 )
-# import sys
+import time
 # sys.path.append("../../")
 from quant.utils.calib_utils import get_calib_dataset
 from quant.utils.common_utils import (
@@ -65,7 +65,7 @@ class AwqQuantizer(BaseQuantizer):
         self.fake_quant = fake_quant
         self.apply_clip = apply_clip
         self.n_parallel_calib_samples = n_parallel_calib_samples
-        self.max_calib_samples = max_calib_samples
+        self.max_calib_samples = max_calib_samples + 128 # increase calib nums for qwen3 moe in case line 731 assert error
         self.max_calib_seq_len = max_calib_seq_len
         self.max_chunk_memory = max_chunk_memory
         self.modules_to_not_convert = (
@@ -79,7 +79,7 @@ class AwqQuantizer(BaseQuantizer):
     # fake quant
     def pseudo_quantize_tensor(self, w: torch.Tensor):
         org_w_shape = w.shape #[5120,5120]
-        if self.group_size > 0:
+        if self.group_size > 0: # for deepseek and group size > 0
             assert org_w_shape[-1] % self.group_size == 0, f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({self.group_size})!"
             w = w.reshape(-1, self.group_size) #[5120x40,128]
         assert w.dim() == 2
@@ -177,14 +177,14 @@ class AwqQuantizer(BaseQuantizer):
         #     n_samples=self.max_calib_samples, max_seq_len=self.max_calib_seq_len
         # )
         # 遍历每个decoderLayer
+        
         for i in tqdm(range(len(self.target_modules)), desc="AWQ"): # init_quant返回了第0个decoder layers的input act
-
-            # Move module and inputs to correct device
-            
-            common_device = next(self.target_modules[i].parameters()).device
+            start = time.perf_counter()
+            # Move module and inputs to correct device（multi gpu）
+            common_device = next(self.target_modules[i].parameters()).device # next的意思是获取该module的第一个参数
             if common_device is None or str(common_device) == "cpu":
                 if torch.cuda.is_available():
-                    best_device = "cuda:" + str(i % torch.cuda.device_count())
+                    best_device = "cuda:" + str(i % torch.cuda.device_count()) # 将当前第i个module的weight移动到第i个device
                 else:
                     best_device = get_best_device()
 
@@ -212,15 +212,16 @@ class AwqQuantizer(BaseQuantizer):
             # 副作用：量化时需要显式确保 rotary_embed 和设备同步。
             # 如果4.45.0后, rotary_embed 是全局的，而某些层被移动到其他设备，会导致 设备不匹配错误，所以每个layer都需要显式移动rotary embed到指定设备
             self.awq_model.move_embed(self.model, common_device)
-            
-            # Transformers >= 4.48.0 requires positional embeddings should be computed before forward pass
-            if (
-                transformers.__version__ >= "4.48.0"
-                and self.module_kwargs.get("position_embeddings") is None
-            ):
-                self.module_kwargs["position_embeddings"] = self.model.model.rotary_emb(
-                    self.inps, self.module_kwargs["position_ids"]
-                )
+            # import pdb;pdb.set_trace()
+            # 以下代码在deepseek v3的quantize中会crash，说找不到dpskv3找不到rotary_emb的属性，毕竟奇怪，估计是transformers的版本问题
+            # Transformers >= 4.48.0 requires positional embeddings should be computed before forward pass 来自于https://github.com/casper-hansen/AutoAWQ/pull/706
+            # if (
+            #     transformers.__version__ >= "4.48.0"
+            #     and self.module_kwargs.get("position_embeddings") is None
+            # ):
+            #     self.module_kwargs["position_embeddings"] = self.model.model.rotary_emb(
+            #         self.inps, self.module_kwargs["position_ids"]
+            #     )
 
             if (transformers.__version__ >= "4.48.0"
                 and self.module_kwargs.get('attention_mask') is None):
@@ -248,6 +249,7 @@ class AwqQuantizer(BaseQuantizer):
             named_linears = exclude_layers_to_not_quantize(
                 named_linears, self.modules_to_not_convert
             )
+            # import pdb;pdb.set_trace()
             # calib，返回每个decoderlayer中每个linear的input features
             # dict_keys(['self_attn.q_proj', 'self_attn.k_proj', 'self_attn.v_proj', 'self_attn.o_proj', 'mlp.gate_proj', 'mlp.up_proj', 'mlp.down_proj'])
             # input_feat['self_attn.q_proj'].shape = [59,512,5120]
@@ -266,31 +268,36 @@ class AwqQuantizer(BaseQuantizer):
             # ('input_layernorm' prev op name, ('self_attn.q_proj', 'self_attn.k_proj', 'self_attn.v_proj') layer name,
             #   best scales: tensor([1.3828, 1.2344, 1.2500,  ..., 1.2812, 1.1250, 1.1406], dtype=torch.bfloat16))
             scales_list = [ #搜寻每个linear的best scale
-                self._search_best_scale(self.target_modules[i], **layer)
+                self._search_best_scale(self.target_modules[i], **layer) # 数据都在module2inspect.parameter的device上面，即attn mlp这些module
                 for layer in module_config
             ]
             # apply best scale, 这个scale是考虑到activation-aware后使得WX-Q(W)X误差最小的scale
-            apply_scale(self.target_modules[i], scales_list, input_feat_dict=input_feat)
+            apply_scale(self.target_modules[i], scales_list, input_feat_dict=input_feat) # 这个使得所有weight都到了CPU
             scales_list = append_str_prefix(
                 scales_list, get_op_name(self.model, self.target_modules[i]) + "."
             )
-
+            
+            # 数据现在在cuda
             # [STEP 3]: Compute and apply clipping list
             if self.apply_clip:
-                clip_list = self._search_best_clip(
+                clip_list = self._search_best_clip( # 数据在self.target_modules[i]中
                     self.target_modules[i], named_linears, input_feat
                 )
-                apply_clip(self.target_modules[i], clip_list)
+                apply_clip(self.target_modules[i], clip_list) # 数据在self.target_modules[i]中
                 clip_list = append_str_prefix(
                     clip_list, get_op_name(self.model, self.target_modules[i]) + "."
                 )
-
+            # import pdb;pdb.set_trace()
+            # 数据现在在cuda
             # [STEP 4]: scale和clip都apply之后，开始real Quantize weights
             if not self.fake_quant:
                 self._apply_quant(self.target_modules[i], named_linears)
-
+            
             clear_memory()
-
+            end = time.perf_counter()
+            # 修改前249.35s
+            # 修改后98.46s
+            print("[info] the quantization time per layer is ", end - start)
     def pack(self):
         for i in tqdm(range(len(self.target_modules)), desc="Packing"):
             named_linears = get_named_linears(self.target_modules[i])
@@ -302,18 +309,17 @@ class AwqQuantizer(BaseQuantizer):
 
     def _apply_quant(self, module, named_linears: Dict[str, nn.Linear]):
         for name, linear_layer in named_linears.items():
-            print(name)
+            print("[info] hit ", name)
+            
             # NOTE: small regression in perplexity if linear layer uses .cpu().float()
-            linear_layer = linear_layer.to(get_best_device()).half()
+            linear_layer = linear_layer.half()
             
             linear_layer.weight.data, scales, zeros = self.pseudo_quantize_tensor(
                 linear_layer.weight.data
             )
             # 易错，上面的pseudo quantize只是为了拿出scales，real quantize会在linear awq.from linear做掉
-            # 不过上面这里的weight我认为没有必要送进去fake quant一下，只需拿到scale和zero不就好了，后面可以试一下
-            # linear_layer.weight.data, scales, zeros = self.real_quantize_tensor(
-            #     linear_layer.weight.data
-            # )
+            # !!!不过上面这里的weight我认为没有必要送进去fake quant一下，只需拿到scale和zero不就好了，后面可以试一下
+            
             # 重要！！需要经过transpose
             scales = scales.t().contiguous()
             if zeros is not None:
@@ -360,7 +366,7 @@ class AwqQuantizer(BaseQuantizer):
 
         return module_output
 
-    @torch.no_grad()
+    @torch.no_grad() # 数据都在module2inspect的device上面
     def _search_best_scale(
         self,
         module,
@@ -421,6 +427,7 @@ class AwqQuantizer(BaseQuantizer):
         with torch.no_grad():
             module_kwargs = self._sanitize_kwargs(kwargs, module2inspect)
             fp16_output = self._module_forward(inp, module2inspect, module_kwargs)
+            # 下面是enable deepseek v3加上的
             fp16_output = fp16_output.clip(torch.finfo(fp16_output.dtype).min, torch.finfo(fp16_output.dtype).max)
 
         # [STEP 4]: Compute loss
@@ -434,6 +441,7 @@ class AwqQuantizer(BaseQuantizer):
             best_scales,
         )
 
+    # 数据都在x的device上面
     def _compute_best_scale(
         self,
         x: torch.Tensor,
@@ -493,6 +501,7 @@ class AwqQuantizer(BaseQuantizer):
 
             # W * X，module2inspect的意思是量化后需要fwd的module，以此来观察量化后对该module输出的影响
             int_w_output = self._module_forward(x, module2inspect, kwargs)
+            # 下面是enable deepseek v3加上的
             int_w_output = int_w_output.clip(torch.finfo(int_w_output.dtype).min, torch.finfo(int_w_output.dtype).max)
 
             # compute mean squared error (L2 norm)
@@ -554,8 +563,7 @@ class AwqQuantizer(BaseQuantizer):
             # due to qk bmm, it is hard to clip precisely
             if any([_ in name for _ in avoid_clipping]):
                 continue
-
-            named_linears[name].to(get_best_device())
+            # named_linears[name].to(get_best_device()) # 本身就在device上面
             max_val = self._compute_best_clip(
                 named_linears[name].weight, input_feat[name]
             )
@@ -707,8 +715,13 @@ class AwqQuantizer(BaseQuantizer):
 
         input_feat = defaultdict(list)
         handles = []
-
-
+        # 这里是qwen3的改动，加了这行才能跑，猜测gate up的输入为named_linears[mlp]的值,后面打印一下layer看看
+        if self.awq_model.model_type == "qwen3_moe" or self.awq_model.model_type == "deepseek_v3":
+            named_linears = {
+                **named_linears,
+                "mlp": layer.mlp,
+            }
+            
         for name in named_linears:
             handles.append(
                 named_linears[name].register_forward_hook(

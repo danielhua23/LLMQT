@@ -6,10 +6,12 @@ from quant.nn_models import *
 from .base import BaseModelForCausalLM
 
 Quant_CAUSAL_LM_MODEL_MAP = {
-    "llama": BaseModelForCausalLM, # TO BE SUPPORTED
+    "llama": LlamaModelForCausalLM, # TO BE SUPPORTED
     "opt": OptModelForCausalLM,
     "qwen2": Qwen2ModelForCausalLM,
-    "qwen3": BaseModelForCausalLM, # TO BE SUPPORTED
+    "qwen3": Qwen3ModelForCausalLM, # TO BE VALIDATED
+    "qwen3_moe": Qwen3MoeModelForCausalLM, # TO BE VALIDATED
+    "deepseek_v3": DeepseekV3ModelForCausalLM,
 }
 
 def check_and_get_model_type(model_dir, trust_remote_code=True, **model_init_kwargs):

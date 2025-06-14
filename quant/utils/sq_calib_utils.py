@@ -142,43 +142,63 @@ def get_static_decoder_layer_scales(
         
     # import pdb;pdb.set_trace()
     decoder_layer_scales = [] # 包含了48层decoder layer的每个linear的input output scale
+    is_opt = model.config.model_type == "opt"
+
     for idx in range(model.config.num_hidden_layers):
+        
         scale_dict = {}
-        scale_dict["attn_input_scale"] = ( # qkv 3个linear都用这个scale
-            act_dict[f"model.decoder.layers.{idx}.self_attn.q_proj"]["input"] / 127
-            # act_dict[f"model.layers.{idx}.self_attn.q_proj"]["input"] / 127
-        )
-        scale_dict["q_output_scale"] = (
-            act_dict[f"model.decoder.layers.{idx}.self_attn.q_proj"]["output"] / 127
-            # act_dict[f"model.layers.{idx}.self_attn.q_proj"]["output"] / 127
-        )
-        scale_dict["k_output_scale"] = (
-            act_dict[f"model.decoder.layers.{idx}.self_attn.k_proj"]["output"] / 127
-            # act_dict[f"model.layers.{idx}.self_attn.k_proj"]["output"] / 127
-        )
-        scale_dict["v_output_scale"] = (
-            act_dict[f"model.decoder.layers.{idx}.self_attn.v_proj"]["output"] / 127
-            # act_dict[f"model.layers.{idx}.self_attn.v_proj"]["output"] / 127
-        )
-        scale_dict["out_input_scale"] = (
-            act_dict[f"model.decoder.layers.{idx}.self_attn.out_proj"]["input"] / 127
-            # act_dict[f"model.layers.{idx}.self_attn.o_proj"]["input"] / 127
-        )
-        scale_dict["fc1_input_scale"] = (
-            act_dict[f"model.decoder.layers.{idx}.fc1"]["input"] / 127
-        )
-        scale_dict["fc2_input_scale"] = (
-            act_dict[f"model.decoder.layers.{idx}.fc2"]["input"] / 127
-        )
-        # scale_dict["gate_input_scale"] = (
-        #     act_dict[f"model.layers.{idx}.mlp.gate_proj"]["input"] / 127
-        # )
-        # scale_dict["up_input_scale"] = (
-        #     act_dict[f"model.layers.{idx}.mlp.up_proj"]["input"] / 127
-        # )
-        # scale_dict["down_input_scale"] = (
-        #     act_dict[f"model.layers.{idx}.mlp.down_proj"]["input"] / 127
-        # )
+        if is_opt:
+            scale_dict["attn_input_scale"] = ( # qkv 3个linear都用这个scale
+                act_dict[f"model.decoder.layers.{idx}.self_attn.q_proj"]["input"] / 127
+                # act_dict[f"model.layers.{idx}.self_attn.q_proj"]["input"] / 127
+            )
+            scale_dict["q_output_scale"] = (
+                act_dict[f"model.decoder.layers.{idx}.self_attn.q_proj"]["output"] / 127
+                # act_dict[f"model.layers.{idx}.self_attn.q_proj"]["output"] / 127
+            )
+            scale_dict["k_output_scale"] = (
+                act_dict[f"model.decoder.layers.{idx}.self_attn.k_proj"]["output"] / 127
+                # act_dict[f"model.layers.{idx}.self_attn.k_proj"]["output"] / 127
+            )
+            scale_dict["v_output_scale"] = (
+                act_dict[f"model.decoder.layers.{idx}.self_attn.v_proj"]["output"] / 127
+                # act_dict[f"model.layers.{idx}.self_attn.v_proj"]["output"] / 127
+            )
+            scale_dict["out_input_scale"] = (
+                act_dict[f"model.decoder.layers.{idx}.self_attn.out_proj"]["input"] / 127
+                # act_dict[f"model.layers.{idx}.self_attn.o_proj"]["input"] / 127
+            )
+            scale_dict["fc1_input_scale"] = (
+                act_dict[f"model.decoder.layers.{idx}.fc1"]["input"] / 127
+            )
+            scale_dict["fc2_input_scale"] = (
+                act_dict[f"model.decoder.layers.{idx}.fc2"]["input"] / 127
+            )
+        else:
+            scale_dict["attn_input_scale"] = ( # qkv 3个linear都用这个scale
+                act_dict[f"model.layers.{idx}.self_attn.q_proj"]["input"] / 127
+            )
+            scale_dict["q_output_scale"] = (
+                act_dict[f"model.layers.{idx}.self_attn.q_proj"]["output"] / 127
+            )
+            scale_dict["k_output_scale"] = (
+                act_dict[f"model.layers.{idx}.self_attn.k_proj"]["output"] / 127
+            )
+            scale_dict["v_output_scale"] = (
+                act_dict[f"model.layers.{idx}.self_attn.v_proj"]["output"] / 127
+            )
+            scale_dict["out_input_scale"] = (
+                act_dict[f"model.layers.{idx}.self_attn.o_proj"]["input"] / 127
+            )
+            scale_dict["gate_input_scale"] = (
+                act_dict[f"model.layers.{idx}.mlp.gate_proj"]["input"] / 127
+            )
+            scale_dict["up_input_scale"] = (
+                act_dict[f"model.layers.{idx}.mlp.up_proj"]["input"] / 127
+            )
+            scale_dict["down_input_scale"] = (
+                act_dict[f"model.layers.{idx}.mlp.down_proj"]["input"] / 127
+            )
         decoder_layer_scales.append(scale_dict)
 
     return decoder_layer_scales, act_dict

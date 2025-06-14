@@ -1,10 +1,14 @@
 from quant.core.api import AutoQuantForCausalLM
 from transformers import AutoTokenizer
 
-model_path = 'Qwen/Qwen2.5-14B-Instruct'
-quant_path = 'Qwen2.5-14B-Instruct-fp8-dyn'
+# model_path = 'Qwen/Qwen2.5-14B-Instruct'
+# quant_path = 'Qwen2.5-14B-Instruct-fp8-dyn'
+# model_path = 'Qwen/Qwen3-8B'
+# quant_path = 'Qwen3-8B-dyn'
+model_path = 'Qwen/Qwen3-30B-A3B'
+quant_path = 'Qwen3-30B-A3B-dyn'
 # quant_config = {"quant_method": "fp8_dynamic_quant", "zero_point": True, "q_group_size": 0, "w_bit": 8, "version": "GEMM" }
-quant_config = {"quant_method": "fp8_dynamic_quant"}
+quant_config = {"quant_method": "fp8_dynamic_quant"} # 显式指定Per_tensor=False可使得per channel weight per token input量化
 
 # Load model
 model = AutoQuantForCausalLM.from_pretrained(model_path)

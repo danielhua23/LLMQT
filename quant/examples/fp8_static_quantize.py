@@ -1,8 +1,13 @@
 from quant.core.api import AutoQuantForCausalLM
 from transformers import AutoTokenizer
-
-model_path = 'Qwen/Qwen2.5-14B-Instruct'
-quant_path = 'Qwen2.5-14B-Instruct-fp8-static'
+# model_path = 'meta-llama/Llama-3.1-8B-Instruct'
+# quant_path = 'Llama-3.1-8B-Instruct-fp8-static'
+# model_path = 'Qwen/Qwen3-8B'
+# quant_path = 'Qwen3-8B-awq-fp8-static'
+# model_path = 'Qwen/Qwen2.5-14B-Instruct'
+# quant_path = 'Qwen2.5-14B-Instruct-fp8-static'
+model_path = 'Qwen/Qwen3-30B-A3B'
+quant_path = 'Qwen3-30B-A3B-static'
 # quant_config = {"quant_method": "fp8_static_quant", "zero_point": True, "q_group_size": 128, "w_bit": 8, "version": "GEMM" }
 quant_config = {"quant_method": "fp8_static_quant"}
 

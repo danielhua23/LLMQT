@@ -26,3 +26,4 @@
     * 已验证AWQ量化出来的模型，在runtime也可以run
         * 遇到的bug：把apply quant阶段的pesudo quant改成了real quant（结果real quant本质是发生在linear_awq.py，所以这里的修改是个多余操作），造成runtime过程中layer1的FA处输出nan，追溯bug发现是layer0的mlp处造成，后续使用autoAWQ量化一个模型出来试一下我们的runtime发现ok，于是定位到是quant有问题，最终rootcause，
         * 已解释linear awq.py处为什么要scales * zeros
+    * 可以非常轻松的在nn_models里面添加支持的模型，见models/how toadd new model.md

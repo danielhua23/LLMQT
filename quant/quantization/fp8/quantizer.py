@@ -146,7 +146,7 @@ class Fp8Quantizer(BaseQuantizer):
             del linear
 
         # [STEP 4]: scale和clip都apply之后，开始real Quantize weights+替换int8 linear
-        if self.quant_config.per_tensor && (self.quant_method == "fp8_static_quant" or self.quant_config.fp8_static_quant):
+        if self.quant_config.per_tensor and (self.quant_method == "fp8_static_quant" or self.quant_config.fp8_static_quant):
             self._apply_quant_act(self.quant_config, calib_tokens) # TODO待调整
         else:
             print("[info] skip static quant, since per_tensor=False or quant method is not static quant")

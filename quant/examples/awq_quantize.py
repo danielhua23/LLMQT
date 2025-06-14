@@ -3,9 +3,15 @@
 from quant.core.api import AutoQuantForCausalLM
 from transformers import AutoTokenizer
 
-model_path = 'Qwen/Qwen2.5-14B-Instruct'
-quant_path = 'Qwen2.5-14B-Instruct-awq'
-quant_config = {"quant_method": "awq", "zero_point": True, "q_group_size": 128, "w_bit": 4}
+# model_path = 'Qwen/Qwen2.5-14B-Instruct'
+# quant_path = 'Qwen2.5-14B-Instruct-awq'
+model_path = 'Qwen/Qwen3-8B'
+quant_path = 'Qwen3-8B-awq'
+# model_path = 'Qwen/Qwen3-30B-A3B'
+# quant_path = 'Qwen3-30B-A3B-awq'
+# model_path = 'v2ray/DeepSeek-V3-1B-Test'
+# quant_path = 'DeepSeek-V3-1B-Test-awq'
+quant_config = {"quant_method": "awq", "zero_point": True, "q_group_size": 128, "w_bit": 4} # awq会用到zeros, q_group_size为一行/一列的128为一组来量化
 
 # Load model
 model = AutoQuantForCausalLM.from_pretrained(model_path)

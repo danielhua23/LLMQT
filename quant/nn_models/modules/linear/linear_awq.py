@@ -172,8 +172,8 @@ class WQLinear_GEMM(LinearBase):
         intweight = intweight.t().contiguous() # 由out features,in feat转到in feat, out feat
         intweight = intweight.to(dtype=torch.int32)
 
-        best_device = get_best_device()
-
+        # best_device = get_best_device()
+        # import pdb;pdb.set_trace()
         qweight = torch.zeros( #[5120, 640]
             (intweight.shape[0], intweight.shape[1] // 32 * awq_linear.w_bit),
             dtype=torch.int32,
@@ -190,7 +190,7 @@ class WQLinear_GEMM(LinearBase):
                 qweight[:, col] |= qweight_col << (i * awq_linear.w_bit)
         awq_linear.qweight = qweight
 
-        zeros = zeros.to(dtype=torch.int32, device=best_device)
+        zeros = zeros.to(dtype=torch.int32)
 
         qzeros = torch.zeros(  #【40，5120】==pack==>【40，640】
             (zeros.shape[0], zeros.shape[1] // 32 * awq_linear.w_bit),

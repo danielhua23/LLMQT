@@ -166,24 +166,28 @@ class SqQuantizer(BaseQuantizer):
             q_linear_module = get_concrete_linear_module(self.quant_method) # WQLinear_GEMM
             # layer_id = int(name.split(".")[2]) # for qwen2 llamalike model
             proj = name.split(".")[-1]
-            layer_id = int(name.split(".")[3])# for opt model
+            try:
+                layer_id = int(name.split(".")[3])# for opt model
+            except:
+                layer_id = int(name.split(".")[2])# for non-opt model
             if proj in ["q_proj", "k_proj", "v_proj"]:
                 print("[info] hit layer ", layer_id)
                 print("[info] hit ", proj)
                 scales = decoder_layer_scales[layer_id]["attn_input_scale"]
+            
             # for qwen2 llamalike model
-            # elif proj in ["o_proj"]:
-            #     print("[info] hit ", proj)
-            #     scales = decoder_layer_scales[layer_id]["out_input_scale"]
-            # elif proj in ["gate_proj"]:
-            #     print("[info] hit ", proj)
-            #     scales = decoder_layer_scales[layer_id]["gate_input_scale"]
-            # elif proj in ["up_proj"]:
-            #     print("[info] hit ", proj)
-            #     scales = decoder_layer_scales[layer_id]["up_input_scale"]
-            # elif proj in ["down_proj"]:
-            #     print("[info] hit ", proj)
-            #     scales = decoder_layer_scales[layer_id]["down_input_scale"]
+            elif proj in ["o_proj"]:
+                print("[info] hit ", proj)
+                scales = decoder_layer_scales[layer_id]["out_input_scale"]
+            elif proj in ["gate_proj"]:
+                print("[info] hit ", proj)
+                scales = decoder_layer_scales[layer_id]["gate_input_scale"]
+            elif proj in ["up_proj"]:
+                print("[info] hit ", proj)
+                scales = decoder_layer_scales[layer_id]["up_input_scale"]
+            elif proj in ["down_proj"]:
+                print("[info] hit ", proj)
+                scales = decoder_layer_scales[layer_id]["down_input_scale"]
             
             # for opt
             elif proj in ["out_proj"]:
