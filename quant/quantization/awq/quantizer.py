@@ -36,6 +36,7 @@ class AwqQuantizer(BaseQuantizer):
         self,
         modelforCausalLM, # from pretained返回的model
         model,
+        model_type,
         tokenizer,
         quant_config,
         quant_method,
@@ -55,6 +56,7 @@ class AwqQuantizer(BaseQuantizer):
         super(BaseQuantizer, self).__init__()
         self.awq_model = modelforCausalLM # Qwen2AwqForCausal类
         self.model = model
+        self.model_type = model_type
         self.tokenizer = tokenizer
         self.quant_method = quant_method
         self.w_bit = w_bit
@@ -65,7 +67,10 @@ class AwqQuantizer(BaseQuantizer):
         self.fake_quant = fake_quant
         self.apply_clip = apply_clip
         self.n_parallel_calib_samples = n_parallel_calib_samples
-        self.max_calib_samples = max_calib_samples + 128 # increase calib nums for qwen3 moe in case line 731 assert error
+        if self.model_type == "qwen3_moe":
+            self.max_calib_samples = max_calib_samples + 128 # increase calib nums for qwen3 moe in case line 763 assert error
+        else:
+            self.max_calib_samples = max_calib_samples
         self.max_calib_seq_len = max_calib_seq_len
         self.max_chunk_memory = max_chunk_memory
         self.modules_to_not_convert = (
@@ -254,8 +259,9 @@ class AwqQuantizer(BaseQuantizer):
             # dict_keys(['self_attn.q_proj', 'self_attn.k_proj', 'self_attn.v_proj', 'self_attn.o_proj', 'mlp.gate_proj', 'mlp.up_proj', 'mlp.down_proj'])
             # input_feat['self_attn.q_proj'].shape = [59,512,5120]
             input_feat = self._get_input_feat(self.target_modules[i], named_linears)
+            end0 = time.perf_counter()
             clear_memory()
-
+            print("[info] the get_input_feat time per layer is ", end0 - start)
             # [STEP 2]: Compute and apply scale list
             # (Pdb) module_config[0].keys()
             # dict_keys(['prev_op', 'layers', 'inp', 'module2inspect', 'kwargs'])
@@ -271,33 +277,43 @@ class AwqQuantizer(BaseQuantizer):
                 self._search_best_scale(self.target_modules[i], **layer) # 数据都在module2inspect.parameter的device上面，即attn mlp这些module
                 for layer in module_config
             ]
+            # import pdb;pdb.set_trace() #此时input_feat在cpu, named linear在cuda
             # apply best scale, 这个scale是考虑到activation-aware后使得WX-Q(W)X误差最小的scale
-            apply_scale(self.target_modules[i], scales_list, input_feat_dict=input_feat) # 这个使得所有weight都到了CPU
+            # 没搞明白：如果不做 apply scale把layer.cpu() + 在search best clip再显式的把named linears to到device，那么clip环节会很慢
+            apply_scale(self.target_modules[i], scales_list, input_feat_dict=input_feat) 
             scales_list = append_str_prefix(
                 scales_list, get_op_name(self.model, self.target_modules[i]) + "."
             )
-            
-            # 数据现在在cuda
+            end1 = time.perf_counter()
+            print("[info] the apply_scale time per layer is ", end1 - end0)
+            # named_linears现在在cuda,但input_feat在cpu,clip_list在gpu
             # [STEP 3]: Compute and apply clipping list
             if self.apply_clip:
-                clip_list = self._search_best_clip( # 数据在self.target_modules[i]中
-                    self.target_modules[i], named_linears, input_feat
-                )
-                apply_clip(self.target_modules[i], clip_list) # 数据在self.target_modules[i]中
+                # import pdb;pdb.set_trace()
+                clip_list = self._search_best_clip( # 后者cpu
+                    self.target_modules[i], named_linears, input_feat, common_device
+                ) # 开头，把weight to到gpu，末尾，weight都被卸载到了cpu，在apply quant又一个个to到gpu， 为啥不让weight一直在gpu呢？
+                apply_clip(self.target_modules[i], clip_list) # 开头，weight to到GPU，末尾，weight再一次一个个的卸载到cpu
                 clip_list = append_str_prefix(
                     clip_list, get_op_name(self.model, self.target_modules[i]) + "."
                 )
+            end2 = time.perf_counter()
+            print("[info] the apply_clip time per layer is ", end2 - end1)
             # import pdb;pdb.set_trace()
             # 数据现在在cuda
             # [STEP 4]: scale和clip都apply之后，开始real Quantize weights
             if not self.fake_quant:
-                self._apply_quant(self.target_modules[i], named_linears)
+                self._apply_quant(self.target_modules[i], named_linears, common_device)
             
             clear_memory()
-            end = time.perf_counter()
+            end3 = time.perf_counter()
             # 修改前249.35s
-            # 修改后98.46s
-            print("[info] the quantization time per layer is ", end - start)
+            # 修改后102.46s
+            # 但是autoawq官方只需14s，看来哪儿错了，得仔细对比一下
+            # print("[info] the get_input_feat time per layer is ", end0 - start)
+            # print("[info] the apply_scale time per layer is ", end1 - end0)
+            # print("[info] the apply_clip time per layer is ", end2 - end1)
+            print("[info] the apply_quant time per layer is ", end3 - end2)
     def pack(self):
         for i in tqdm(range(len(self.target_modules)), desc="Packing"):
             named_linears = get_named_linears(self.target_modules[i])
@@ -307,12 +323,12 @@ class AwqQuantizer(BaseQuantizer):
             self._apply_quant(self.target_modules[i], named_linears)
             clear_memory()
 
-    def _apply_quant(self, module, named_linears: Dict[str, nn.Linear]):
+    def _apply_quant(self, module, named_linears: Dict[str, nn.Linear], common_device):
         for name, linear_layer in named_linears.items():
             print("[info] hit ", name)
-            
+            # import pdb;pdb.set_trace()
             # NOTE: small regression in perplexity if linear layer uses .cpu().float()
-            linear_layer = linear_layer.half()
+            linear_layer = linear_layer.to(common_device).half() # 这里to common device，时间会减小1/3-1/2
             
             linear_layer.weight.data, scales, zeros = self.pseudo_quantize_tensor(
                 linear_layer.weight.data
@@ -555,15 +571,16 @@ class AwqQuantizer(BaseQuantizer):
         return loss
 
     @torch.no_grad()
-    def _search_best_clip(self, layer, named_linears, input_feat):
+    def _search_best_clip(self, layer, named_linears, input_feat, common_device):
         clip_list = []
         avoid_clipping = ["q_", "k_", "query", "key", "Wqkv"]
-
+        
         for name in named_linears:
             # due to qk bmm, it is hard to clip precisely
+            #import pdb;pdb.set_trace()
             if any([_ in name for _ in avoid_clipping]):
                 continue
-            # named_linears[name].to(get_best_device()) # 本身就在device上面
+            named_linears[name].to(common_device) # 不加这个的话，577俩个都在cpu
             max_val = self._compute_best_clip(
                 named_linears[name].weight, input_feat[name]
             )

@@ -263,6 +263,7 @@ class BaseModelForCausalLM(nn.Module):
         self.quantizer = quantizer_cls(
             self, # models/下面的Qwen2ModelForCausal, only use for awq
             self.model,
+            self.model_type,
             tokenizer,
             self.quant_config,
             self.quant_config.quant_method,

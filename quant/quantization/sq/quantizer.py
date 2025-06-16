@@ -35,6 +35,7 @@ class SqQuantizer(BaseQuantizer):
         self,
         modelforCausalLM, # Qwen2ModelForCausal类 # only use for awq
         model,
+        model_type,
         tokenizer,
         quant_config,
         quant_method,
@@ -139,6 +140,14 @@ class SqQuantizer(BaseQuantizer):
         named_linears = exclude_layers_to_not_quantize(
             named_linears, self.modules_to_not_convert
         )
+        if self.fake_quant:
+            for name, linear_layer in named_linears.items():
+                print("[info] hit ", name)
+                # linear_layer = linear_layer.to(common_device).half() # 这里to common device，时间会减小1/3-1/2
+                linear_layer.weight.data, scales, zeros = self.pseudo_quantize_tensor(
+                    linear_layer.weight.data
+                )
+            return
         # calib，与上面的get_act_scales的区别在于，这里还要求每个linear的output max，最后得到input scale和output scale，用以QDQ
         decoder_layer_scales, raw_scales = get_static_decoder_layer_scales(self.model,
                                                                         self.tokenizer,

@@ -34,6 +34,7 @@ class Fp8Quantizer(BaseQuantizer):
         self,
         modelforCausalLM, # only use for awq
         model,
+        model_type,
         tokenizer,
         quant_config,
         quant_method,
