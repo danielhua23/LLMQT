@@ -36,10 +36,11 @@ TRANSFORMERS_AUTO_MAPPING_DICT = {
     "llama": "AutoModelForCausalLM",
     "opt": "AutoModelForCausalLM",
     "qwen2": "AutoModelForCausalLM",
-    "qwen2_vl": "AutoModelForVision2Seq",
     "qwen3": "AutoModelForCausalLM",
     "qwen3_moe": "AutoModelForCausalLM",
     "deepseek_v3": "AutoModelForCausalLM",
+    "qwen2_distilled_r1": "AutoModelForCausalLM",
+    "llama4": "AutoModelForCausalLM",
 }
 
 
@@ -146,7 +147,7 @@ class BaseModelForCausalLM(nn.Module):
         #     processor = AutoProcessor.from_pretrained(model_weights_path)
         if model_init_kwargs.get("low_cpu_mem_usage") is None:
             model_init_kwargs["low_cpu_mem_usage"] = low_cpu_mem_usage
-        if model_init_kwargs.get("use_cache") is None and not ((target_cls_name == "AutoModelForVision2Seq") or (target_cls_name == "AutoModelForTextToWaveform")):
+        if model_init_kwargs.get("use_cache") is None and model_type != "llama4" and not ((target_cls_name == "AutoModelForVision2Seq") or (target_cls_name == "AutoModelForTextToWaveform")):
             model_init_kwargs["use_cache"] = use_cache
 
         # If not quantized, must load with AutoModelForCausalLM

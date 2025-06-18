@@ -6,8 +6,10 @@ from transformers import AutoTokenizer
 # quant_path = 'Qwen3-8B-awq-fp8-static'
 # model_path = 'Qwen/Qwen2.5-14B-Instruct'
 # quant_path = 'Qwen2.5-14B-Instruct-fp8-static'
-model_path = 'Qwen/Qwen3-30B-A3B'
-quant_path = 'Qwen3-30B-A3B-static'
+# model_path = 'Qwen/Qwen3-30B-A3B'
+# quant_path = 'Qwen3-30B-A3B-static'
+model_path = 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B'
+quant_path = 'DeepSeek-R1-Distill-Qwen-32B-static'
 # quant_config = {"quant_method": "fp8_static_quant", "zero_point": True, "q_group_size": 128, "w_bit": 8, "version": "GEMM" }
 quant_config = {"quant_method": "fp8_static_quant"}
 

@@ -12,6 +12,8 @@ Quant_CAUSAL_LM_MODEL_MAP = {
     "qwen3": Qwen3ModelForCausalLM, # TO BE VALIDATED
     "qwen3_moe": Qwen3MoeModelForCausalLM, # TO BE VALIDATED
     "deepseek_v3": DeepseekV3ModelForCausalLM,
+    "qwen2_distilled_r1": DeepseekR1DistillQwen2ModelForCausalLM,
+    "llama4": Llama4MoeModelForCausalLM
 }
 
 def check_and_get_model_type(model_dir, trust_remote_code=True, **model_init_kwargs):
@@ -22,6 +24,8 @@ def check_and_get_model_type(model_dir, trust_remote_code=True, **model_init_kwa
     if config.model_type not in Quant_CAUSAL_LM_MODEL_MAP.keys():
         raise TypeError(f"{config.model_type} isn't supported yet.")
     model_type = config.model_type
+    if model_dir[:8] == "deepseek" and model_type == "qwen2":
+        model_type = "qwen2_distilled_r1"
     return model_type
 
 

@@ -5,8 +5,12 @@ from transformers import AutoTokenizer
 # quant_path = 'Qwen2.5-14B-Instruct-fp8-dyn'
 # model_path = 'Qwen/Qwen3-8B'
 # quant_path = 'Qwen3-8B-dyn'
-model_path = 'Qwen/Qwen3-30B-A3B'
-quant_path = 'Qwen3-30B-A3B-dyn'
+# model_path = 'Qwen/Qwen3-30B-A3B'
+# quant_path = 'Qwen3-30B-A3B-dyn'
+# model_path = 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B'
+# quant_path = 'DeepSeek-R1-Distill-Qwen-32B-dyn'
+model_path = 'meta-llama/Llama-4-Scout-17B-16E'
+quant_path = 'Llama-4-Scout-17B-16E-dyn'
 # quant_config = {"quant_method": "fp8_dynamic_quant", "zero_point": True, "q_group_size": 0, "w_bit": 8, "version": "GEMM" }
 quant_config = {"quant_method": "fp8_dynamic_quant"} # 显式指定Per_tensor=False可使得per channel weight per token input量化
 

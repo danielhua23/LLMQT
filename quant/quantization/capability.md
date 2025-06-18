@@ -1,4 +1,5 @@
-* awq: 
+* 多卡量化支持情况：
+    * 目前只在awq上支持了多卡量化，sq后续不打算支持，fp8可以支持一下
     * 支持per row quant，或者row上的per group quant，当group wise为0时为per row quant
     * 支持zero point即asym量化
     * 支持8xint4 weight pack为int32 weight
