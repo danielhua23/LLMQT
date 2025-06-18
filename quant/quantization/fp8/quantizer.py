@@ -52,6 +52,7 @@ class Fp8Quantizer(BaseQuantizer):
         max_chunk_memory=1024 * 1024 * 1024,
     ) -> None:
         super(BaseQuantizer, self).__init__()
+        self.modelforCausalLM = modelforCausalLM
         self.model = model
         self.quant_method = quant_method
         self.tokenizer = tokenizer
@@ -123,35 +124,79 @@ class Fp8Quantizer(BaseQuantizer):
     #     return w
 
     def quantize(self):
-        named_modules = list(self.model.named_modules()) # self.model为AutoModelFromCausal.from_pretained的返回值
+        layers = self.modelforCausalLM.get_model_layers(self.model)
         calib_tokens = prepare_calib_tokens(self.tokenizer, self.device, self.max_calib_samples, self.max_calib_seq_len) # tokenizer是AutoTokenizer.from_pretrained(model path)的返回值
-        for name, linear in tqdm(named_modules, desc="FP8 Quantizing weights"):
-            if (
-                not isinstance(linear, torch.nn.Linear)
-                or name in self.quant_config.modules_to_not_convert
-            ):
-                print("=== skipping ", name)
-                continue
-            print("=== Dynamic Quantizing ", name)
-            # quant_weight.shape, linear.weight.shape= [5120, 5120], weight_scale=tenosr(0.008)
-            quant_weight, weight_scales = per_tensor_quantize(linear.weight) # 这一步多余
-            bias = copy.deepcopy(linear.bias) if linear.bias is not None else None
-            # TODO:把per tensor加入quant config
-            q_linear = self.dynamic_quant_linear.from_linear(linear, weight=quant_weight, weight_scales=weight_scales, bias=bias, per_tensor=self.quant_config.per_tensor)
-            # quant_linear = FP8DynamicLinear(
-            #     weight=quant_weight, weight_scale=weight_scale, bias=bias
-            # )
-            replace_module(self.model, name, q_linear)
-            del linear.weight
-            del linear.bias
-            del linear
+        for i in tqdm(range(len(layers)),desc="FP8 Quantizing weights"):
+            # 获取当前layer该被分到第几个device
+            common_device = next(layers[i].parameters()).device # next的意思是获取该module的第一个参数
+            if common_device is None or str(common_device) == "cpu":
+                if torch.cuda.is_available():
+                    best_device = "cuda:" + str(i % torch.cuda.device_count()) # 将当前第i个module的weight移动到第i个device
+                else:
+                    best_device = get_best_device()
 
-        # [STEP 4]: scale和clip都apply之后，开始real Quantize weights+替换int8 linear
+                layers[i] = layers[i].to(best_device)
+                common_device = next(layers[i].parameters()).device
+                
+            named_modules = get_named_linears(layers[i])
+            # import pdb;pdb.set_trace()
+            for name, linear in named_modules.items():
+                if (
+                    not isinstance(linear, torch.nn.Linear)
+                    or name in self.quant_config.modules_to_not_convert
+                ):
+                    print("=== skipping ", name)
+                    continue
+                print("=== Dynamic Quantizing ", name)
+                # quant_weight.shape, linear.weight.shape= [5120, 5120], weight_scale=tenosr(0.008)
+                quant_weight, weight_scales = per_tensor_quantize(linear.weight) # 这一步多余
+                bias = copy.deepcopy(linear.bias) if linear.bias is not None else None
+                # TODO:把per tensor加入quant config
+                q_linear = self.dynamic_quant_linear.from_linear(linear, weight=quant_weight, weight_scales=weight_scales, bias=bias, per_tensor=self.quant_config.per_tensor)
+                # quant_linear = FP8DynamicLinear(
+                #     weight=quant_weight, weight_scale=weight_scale, bias=bias
+                # )
+                replace_module(layers[i], name, q_linear)
+                del linear.weight
+                del linear.bias
+                del linear  
+            layers[i].cpu()  
+            clear_memory()        
         if self.quant_config.per_tensor and (self.quant_method == "fp8_static_quant" or self.quant_config.fp8_static_quant):
             self._apply_quant_act(self.quant_config, calib_tokens) # TODO待调整
         else:
             print("[info] skip static quant, since per_tensor=False or quant method is not static quant")
-        clear_memory()
+        clear_memory()            
+        # single card dyn quant 
+        # named_modules = list(self.model.named_modules()) # self.model为AutoModelFromCausal.from_pretained的返回值
+        # calib_tokens = prepare_calib_tokens(self.tokenizer, self.device, self.max_calib_samples, self.max_calib_seq_len) # tokenizer是AutoTokenizer.from_pretrained(model path)的返回值
+        # for name, linear in tqdm(named_modules, desc="FP8 Quantizing weights"):
+        #     if (
+        #         not isinstance(linear, torch.nn.Linear)
+        #         or name in self.quant_config.modules_to_not_convert
+        #     ):
+        #         print("=== skipping ", name)
+        #         continue
+        #     print("=== Dynamic Quantizing ", name)
+        #     # quant_weight.shape, linear.weight.shape= [5120, 5120], weight_scale=tenosr(0.008)
+        #     quant_weight, weight_scales = per_tensor_quantize(linear.weight) # 这一步多余
+        #     bias = copy.deepcopy(linear.bias) if linear.bias is not None else None
+        #     # TODO:把per tensor加入quant config
+        #     q_linear = self.dynamic_quant_linear.from_linear(linear, weight=quant_weight, weight_scales=weight_scales, bias=bias, per_tensor=self.quant_config.per_tensor)
+        #     # quant_linear = FP8DynamicLinear(
+        #     #     weight=quant_weight, weight_scale=weight_scale, bias=bias
+        #     # )
+        #     replace_module(self.model, name, q_linear)
+        #     del linear.weight
+        #     del linear.bias
+        #     del linear
+
+        # [STEP 4]: scale和clip都apply之后，开始real Quantize weights+替换int8 linear
+        # if self.quant_config.per_tensor and (self.quant_method == "fp8_static_quant" or self.quant_config.fp8_static_quant):
+        #     self._apply_quant_act(self.quant_config, calib_tokens) # TODO待调整
+        # else:
+        #     print("[info] skip static quant, since per_tensor=False or quant method is not static quant")
+        # clear_memory()
 
     def _apply_quant_act(self, quant_config, calib_tokens):
         # Replace weight quantizer with a dynamic activation quantizer observer
